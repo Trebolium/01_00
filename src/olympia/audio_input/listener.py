@@ -28,7 +28,8 @@ def _get_oww_model():
 
         print(f"[audio_input] Loading openwakeword model '{WAKE_MODEL_NAME}' (stand-in for 'hey olympia')...")
         print("[audio_input] NOTE: first run downloads pretrained model files automatically.")
-        _oww_model = Model(wakeword_models=[WAKE_MODEL_NAME])
+        # onnxruntime is the installed backend (tflite-runtime isn't available on all platforms, e.g. Apple Silicon).
+        _oww_model = Model(wakeword_models=[WAKE_MODEL_NAME], inference_framework="onnx")
         print("[audio_input] openwakeword model loaded.")
     return _oww_model
 
