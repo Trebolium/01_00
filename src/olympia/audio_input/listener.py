@@ -1,10 +1,13 @@
 # Mic input: wake-word detection + VAD-gated utterance recording.
+import logging
 import time
 
 import numpy as np
 import sounddevice as sd
 
 from olympia.config import CONVERSATION_SILENCE_TIMEOUT_S, SAMPLE_RATE, VAD_TRAILING_SILENCE_MS
+
+logger = logging.getLogger("olympia.audio_input")
 
 # openwakeword ships no "hey olympia" model, so we stand in with its pretrained "hey_jarvis" model.
 WAKE_MODEL_NAME = "hey_jarvis"
@@ -26,11 +29,11 @@ def _get_oww_model():
     if _oww_model is None:
         from openwakeword.model import Model
 
-        print(f"[audio_input] Loading openwakeword model '{WAKE_MODEL_NAME}' (stand-in for 'hey olympia')...")
-        print("[audio_input] NOTE: first run downloads pretrained model files automatically.")
+        logger.info("Loading openwakeword model '%s' (stand-in for 'hey olympia')...", WAKE_MODEL_NAME)
+        logger.info("NOTE: first run downloads pretrained model files automatically.")
         # onnxruntime is the installed backend (tflite-runtime isn't available on all platforms, e.g. Apple Silicon).
         _oww_model = Model(wakeword_models=[WAKE_MODEL_NAME], inference_framework="onnx")
-        print("[audio_input] openwakeword model loaded.")
+        logger.info("openwakeword model loaded.")
     return _oww_model
 
 
@@ -40,10 +43,10 @@ def _get_vad_model():
     if _vad_model is None:
         import torch
 
-        print("[audio_input] Loading silero-vad model via torch.hub (first run may download it)...")
+        logger.info("Loading silero-vad model via torch.hub (first run may download it)...")
         model, _utils = torch.hub.load(repo_or_dir="snakers4/silero-vad", model="silero_vad")
         _vad_model = model
-        print("[audio_input] silero-vad model loaded.")
+        logger.info("silero-vad model loaded.")
     return _vad_model
 
 
@@ -71,20 +74,23 @@ def trim_silence(audio: np.ndarray, speech_flags: list[bool], frame_size: int) -
 
 def listen_for_wake_word() -> None:
     # Blocks until the wake phrase (stand-in "hey_jarvis") is detected on the live mic.
-    print(f"[audio_input] WAKE WORD STAND-IN: listening for 'hey_jarvis' as a placeholder for '{'hey olympia'}'.")
+    logger.info("WAKE WORD STAND-IN: listening for 'hey_jarvis' as a placeholder for 'hey olympia'.")
     model = _get_oww_model()
+    # Clear the model's internal audio-feature buffers so stale audio from a previous detection
+    # (which we stop feeding as soon as it triggers) can't cause an immediate false re-trigger.
+    model.reset()
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=OWW_FRAME_SAMPLES) as stream:
-        print("[audio_input] Mic stream open. Waiting for wake word...")
+        logger.info("Mic stream open. Waiting for wake word...")
         while True:
             frame, overflowed = stream.read(OWW_FRAME_SAMPLES)
             if overflowed:
-                print("[audio_input] WARNING: input overflow detected, some audio may have been dropped.")
+                logger.warning("Input overflow detected, some audio may have been dropped.")
             frame = frame.reshape(-1)
             scores = model.predict(frame)
             score = scores.get(WAKE_MODEL_NAME, 0.0)
             if score >= WAKE_THRESHOLD:
-                print(f"[audio_input] Wake word detected! score={score:.2f} (stand-in for 'hey olympia')")
+                logger.info("Wake word detected! score=%.2f (stand-in for 'hey olympia')", score)
                 return
 
 
@@ -96,12 +102,12 @@ def _record_with_vad(max_initial_wait_s: float | None) -> tuple[np.ndarray, int]
     trailing_silence_frames = 0
     start_time = time.monotonic()
 
-    print("[audio_input] Recording started, waiting for speech...")
+    logger.info("Recording started, waiting for speech...")
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=VAD_FRAME_SAMPLES) as stream:
         while True:
             chunk, overflowed = stream.read(VAD_FRAME_SAMPLES)
             if overflowed:
-                print("[audio_input] WARNING: input overflow detected, some audio may have been dropped.")
+                logger.warning("Input overflow detected, some audio may have been dropped.")
             chunk = chunk.reshape(-1)
             frames.append(chunk)
 
@@ -111,24 +117,24 @@ def _record_with_vad(max_initial_wait_s: float | None) -> tuple[np.ndarray, int]
 
             if is_speech:
                 if not speech_started:
-                    print("[audio_input] Speech detected, recording utterance...")
+                    logger.info("Speech detected, recording utterance...")
                 speech_started = True
                 trailing_silence_frames = 0
             elif speech_started:
                 trailing_silence_frames += 1
                 if trailing_silence_frames >= VAD_TRAILING_SILENCE_FRAMES:
-                    print(f"[audio_input] {VAD_TRAILING_SILENCE_MS}ms trailing silence reached, stopping recording.")
+                    logger.info("%dms trailing silence reached, stopping recording.", VAD_TRAILING_SILENCE_MS)
                     break
 
             if not speech_started and max_initial_wait_s is not None:
                 elapsed = time.monotonic() - start_time
                 if elapsed >= max_initial_wait_s:
-                    print(f"[audio_input] No speech detected within {max_initial_wait_s}s timeout, ending.")
+                    logger.info("No speech detected within %ss timeout, ending.", max_initial_wait_s)
                     return None
 
     full_audio = np.concatenate(frames)
     trimmed = trim_silence(full_audio, speech_flags, VAD_FRAME_SAMPLES)
-    print(f"[audio_input] Utterance recorded: {len(trimmed) / SAMPLE_RATE:.2f}s of trimmed audio.")
+    logger.info("Utterance recorded: %.2fs of trimmed audio.", len(trimmed) / SAMPLE_RATE)
     return trimmed, SAMPLE_RATE
 
 
