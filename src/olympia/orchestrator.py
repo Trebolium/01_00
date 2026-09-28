@@ -32,22 +32,24 @@ def _handle_turn(audio, sample_rate) -> None:
 
 def run() -> None:
     logger.info("Olympia is starting up. Listening for the wake word...")
+    listen_for_wake_word()
+
+    logger.info("Wake word detected — recording your message... (ends if nothing is said within 5s)")
+    result = record_utterance()
+    if result is None:
+        logger.info("No speech detected after wake word — ending program.")
+        return
+    audio, sample_rate = result
+    _handle_turn(audio, sample_rate)
+
+    logger.info("Waiting for a follow-up... (conversation ends after 5s of silence)")
     while True:
-        listen_for_wake_word()
-        logger.info("Wake word detected — recording your message...")
-        audio, sample_rate = record_utterance()
+        result = record_followup()
+        if result is None:
+            logger.info("No further speech detected — conversation ended.")
+            return
+        audio, sample_rate = result
         _handle_turn(audio, sample_rate)
-
-        logger.info("Waiting for a follow-up... (conversation ends after 5s of silence)")
-        while True:
-            result = record_followup()
-            if result is None:
-                logger.info("No further speech detected — conversation ended.")
-                break
-            audio, sample_rate = result
-            _handle_turn(audio, sample_rate)
-
-        logger.info("Back to listening for the wake word...")
 
 
 if __name__ == "__main__":

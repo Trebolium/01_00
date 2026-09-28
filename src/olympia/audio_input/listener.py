@@ -132,11 +132,10 @@ def _record_with_vad(max_initial_wait_s: float | None) -> tuple[np.ndarray, int]
     return trimmed, SAMPLE_RATE
 
 
-def record_utterance() -> tuple[np.ndarray, int]:
+def record_utterance(timeout_s: float = CONVERSATION_SILENCE_TIMEOUT_S) -> tuple[np.ndarray, int] | None:
     # Call right after wake word triggers. Records until VAD sees trailing silence, trims edges.
-    result = _record_with_vad(max_initial_wait_s=None)
-    assert result is not None  # no timeout is set, so this always returns audio
-    return result
+    # Returns None if no speech starts within timeout_s (caller should end the session).
+    return _record_with_vad(max_initial_wait_s=timeout_s)
 
 
 def record_followup(timeout_s: float = CONVERSATION_SILENCE_TIMEOUT_S) -> tuple[np.ndarray, int] | None:

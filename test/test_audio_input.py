@@ -43,8 +43,8 @@ def test_public_functions_exist_with_expected_signatures():
     assert callable(listener.listen_for_wake_word)
     assert inspect.signature(listener.listen_for_wake_word).parameters == {}
 
-    assert callable(listener.record_utterance)
-    assert inspect.signature(listener.record_utterance).parameters == {}
+    sig = inspect.signature(listener.record_utterance)
+    assert list(sig.parameters) == ["timeout_s"]
 
     sig = inspect.signature(listener.record_followup)
     assert list(sig.parameters) == ["timeout_s"]
