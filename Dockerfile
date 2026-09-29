@@ -11,6 +11,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
+# openwakeword ships no model weights in its pip package — bake them into the image at build
+# time so the container doesn't need network access on every start to fetch them.
+RUN uv run python -c "import openwakeword; openwakeword.utils.download_models()"
+
 COPY src ./src
 
 CMD ["uv", "run", "python", "-m", "olympia.orchestrator"]
